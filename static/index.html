@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Strategy Backtester</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-6">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-blue-400">📈 Trading Strategy Backtester</h1>
+            <p class="text-gray-400 mt-2">Upload your CSV data, write Pine Script (or convert to Python), and view performance metrics.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Input Section -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-blue-300">1. Strategy & Data Input</h2>
+                
+                <form id="backtestForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Upload CSV Data (e.g., Date, Close columns)</label>
+                        <input type="file" id="csvFile" accept=".csv" required class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Pine Script Strategy Code</label>
+                        <textarea id="pineScript" rows="6" placeholder="//@version=5&#10;strategy('My Strategy', overlay=true)&#10;longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))&#10;if (longCondition)&#10;    strategy.entry('My Long Id', strategy.long)" required class="w-full bg-gray-700 p-3 rounded border border-gray-600 font-mono text-sm"></textarea>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition">
+                        Run Backtest
+                    </button>
+                </form>
+            </div>
+
+            <!-- Results Metrics Section -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg flex flex-col justify-between">
+                <div>
+                    <h2 class="text-xl font-semibold mb-4 text-blue-300">2. Performance Dashboard</h2>
+                    <div id="metrics" class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gray-700 p-4 rounded text-center">
+                            <p class="text-xs text-gray-400">Total P&L</p>
+                            <p id="pnlMetric" class="text-lg font-bold text-gray-200">-</p>
+                        </div>
+                        <div class="bg-gray-700 p-4 rounded text-center">
+                            <p class="text-xs text-gray-400">Win Rate</p>
+                            <p id="winRateMetric" class="text-lg font-bold text-gray-200">-</p>
+                        </div>
+                        <div class="bg-gray-700 p-4 rounded text-center">
+                            <p class="text-xs text-gray-400">Max Drawdown</p>
+                            <p id="drawdownMetric" class="text-lg font-bold text-gray-200">-</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-400 mb-2">Converted Python Code Preview:</h3>
+                        <pre id="pythonCodeOutput" class="bg-gray-900 p-3 rounded text-xs font-mono text-green-400 h-28 overflow-y-auto">No backtest run yet...</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart & Trade History Section -->
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg md:col-span-2">
+                <h3 class="text-lg font-semibold mb-4 text-blue-300">Equity / Price Curve Chart</h3>
+                <canvas id="backtestChart" height="120"></canvas>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg">
+                <h3 class="text-lg font-semibold mb-4 text-blue-300">Trade History</h3>
+                <div class="overflow-y-auto h-64">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="border-b border-gray-700 text-gray-400">
+                                <th class="pb-2">#</th>
+                                <th class="pb-2">Type</th>
+                                <th class="pb-2">Price</th>
+                                <th class="pb-2">PnL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeHistoryBody">
+                            <tr><td colspan="4" class="text-center py-4 text-gray-500">No trades recorded</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let myChart = null;
+
+        document.getElementById('backtestForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('csvFile').files[0];
+            const pineScriptText = document.getElementById('pineScript').value;
+
+            const formData = new FormData();
+            formData.append('file', fileInput);
+            formData.append('pine_script', pineScriptText);
+
+            try {
+                const response = await fetch('http://localhost:8000/api/backtest', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert('Error: ' + err.detail);
+                    return;
+                }
+
+                const data = await response.json();
+
+                // 1. Update Metrics
+                document.getElementById('pnlMetric').innerText = data.metrics.total_profit_loss + '%';
+                document.getElementById('pnlMetric').className = data.metrics.total_profit_loss >= 0 ? 'text-lg font-bold text-green-400' : 'text-lg font-bold text-red-400';
+                
+                document.getElementById('winRateMetric').innerText = data.metrics.win_rate + '%';
+                document.getElementById('drawdownMetric').innerText = data.metrics.max_drawdown + '%';
+
+                // 2. Update Python Code Preview
+                document.getElementById('pythonCodeOutput').innerText = data.converted_python_code;
+
+                // 3. Update Trade History Table
+                const tbody = document.getElementById('tradeHistoryBody');
+                tbody.innerHTML = '';
+                data.trade_history.forEach(trade => {
+                    tbody.innerHTML += `
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2">${trade.trade}</td>
+                            <td class="py-2 text-${trade.type === 'BUY' ? 'green' : 'red'}-400 font-semibold">${trade.type}</td>
+                            <td class="py-2">${trade.price.toFixed(2)}</td>
+                            <td class="py-2 text-green-400">${trade.pnl}</td>
+                        </tr>
+                    `;
+                });
+
+                // 4. Render Chart
+                const chartLabels = data.chart_data.map(item => item.date);
+                const chartValues = data.chart_data.map(item => item.close);
+
+                const ctx = document.getElementById('backtestChart').getContext('2d');
+                if (myChart) myChart.destroy();
+
+                myChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: chartLabels,
+                        datasets: [{
+                            label: 'Close Price / Equity',
+                            data: chartValues,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: '#374151' } },
+                            y: { grid: { color: '#374151' } }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error connecting to backend:', error);
+                alert('Failed to connect to backend server. Make sure FastAPI is running.');
+            }
+        });
+    </script>
+</body>
+  </html>
+  
